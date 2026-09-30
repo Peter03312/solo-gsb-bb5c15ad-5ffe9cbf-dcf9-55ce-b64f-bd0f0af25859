@@ -55,3 +55,28 @@ class AnalysisRequest(BaseModel):
 
     areas: list[ProtectedArea] = Field(min_length=1, description="保护区列表，至少 1 个")
     track: list[TrackPoint] = Field(description="按时间排列的测线点")
+
+
+class VesselTrack(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    vessel_id: Union[str, int] = Field(description="唯一船舶编号，重复编号整体拒绝")
+    track: list[TrackPoint] = Field(description="该船舶按时间严格递增排列的测线点（至少 2 点）")
+
+
+class PatrolRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    areas: list[ProtectedArea] = Field(min_length=1, description="保护区列表，至少 1 个")
+    vessels: list[VesselTrack] = Field(min_length=1, description="带唯一编号的多条船舶测线，至少 1 条")
+    threshold: int = Field(description="并发船数阈值 N，必须为正整数（布尔/小数不接受）")
+
+    @field_validator("threshold", mode="before")
+    @classmethod
+    def _check_threshold_kind(cls, v):
+        # 显式拒绝 True/False 与 1.0 之类：阈值必须是数学意义上的正整数。
+        if isinstance(v, bool) or not isinstance(v, int):
+            raise ValueError("threshold 必须是正整数（不能是布尔值或小数）")
+        if v <= 0:
+            raise ValueError("threshold 必须为正整数（>= 1）")
+        return v

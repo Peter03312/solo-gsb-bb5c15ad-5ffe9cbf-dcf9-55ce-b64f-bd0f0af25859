@@ -7,15 +7,15 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
-from .analysis import AnalysisError, analyze
+from .analysis import AnalysisError, analyze, patrol
 from .geopoly import GeometryError
-from .schemas import AnalysisRequest
+from .schemas import AnalysisRequest, PatrolRequest
 
 app = FastAPI(
     title="海洋保护区穿越判定 API",
     description="提交保护区（UTC 生效区间 + GeoJSON 多边形）与带时间戳的测线，"
-    "返回进入/离开时刻与累计停留秒数。",
-    version="1.0.0",
+    "返回进入/离开时刻与累计停留秒数；/api/v1/patrol 支持多条船舶测线的并发停留巡查。",
+    version="1.1.0",
 )
 
 
@@ -73,4 +73,20 @@ async def analyze_track(request: Request):
     if len(req.track) < 2:
         raise AnalysisError("track 至少需要 2 个按时间排列的点")
     result = analyze(req.areas, req.track)
+    return {"results": result}
+
+
+@app.post("/api/v1/patrol")
+async def patrol_concurrent(request: Request):
+    # 海上巡查：多条带唯一船舶编号的测线在同一保护区的并发停留。
+    # 解析/结构校验 -> 测线与保护区语义校验（任一失败整体 400）-> 并发统计。
+    try:
+        payload = await request.json()
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse(status_code=400, content={"error": f"请求体不是合法 JSON: {exc}"})
+    if not isinstance(payload, dict):
+        return JSONResponse(status_code=400, content={"error": "请求体必须是 JSON 对象"})
+
+    req = PatrolRequest.model_validate(payload)
+    result = patrol(req.areas, req.vessels, req.threshold)
     return {"results": result}
